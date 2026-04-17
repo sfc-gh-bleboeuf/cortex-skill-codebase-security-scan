@@ -1,0 +1,8 @@
+[project]
+name = "codebase-security-scan"
+version = "0.1.0"
+description = "Scan codebases for hardcoded secrets and outdated Snowflake Cortex AI models"
+requires-python = ">=3.11"
+# scan.py intentionally uses only the Python standard library.
+# No external dependencies are required.
+dependencies = []

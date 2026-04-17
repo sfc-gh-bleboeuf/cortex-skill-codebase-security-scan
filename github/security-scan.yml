@@ -1,0 +1,56 @@
+name: Security & AI Model Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan for secrets and outdated AI models
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # scan.py uses only stdlib — no pip install needed
+      - name: Run security & AI model scan
+        run: |
+          python .github/scripts/scan.py . --format github
+        # Exit 1 = blocking secrets found  → fails the job → blocks merge
+        # Exit 0 = clean or warnings only  → job passes
+
+      # On pull requests, post a summary comment if the scan failed
+      - name: Post failure summary
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: [
+                '## Security Scan Failed',
+                '',
+                'The codebase security scan found **hardcoded secrets or credentials**.',
+                'Please review the inline annotations on the **Files changed** tab and remove any exposed values.',
+                '',
+                '**Common fixes:**',
+                '- Replace hardcoded values with environment variables (`os.environ["MY_SECRET"]`)',
+                '- Use a secrets manager (GitHub Secrets, Snowflake Secrets, AWS Secrets Manager)',
+                '- If flagged incorrectly, add `# noscan` to the end of the line',
+                '',
+                'Re-push your branch to re-trigger this check.',
+              ].join('\n')
+            })
