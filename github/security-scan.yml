@@ -18,17 +18,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      # scan.py uses only stdlib — no pip install needed
       - name: Run security & AI model scan
-        run: |
-          python .github/scripts/scan.py . --format github
-        # Exit 1 = blocking secrets found  → fails the job → blocks merge
-        # Exit 0 = clean or warnings only  → job passes
+        uses: sfc-gh-bleboeuf/cortex-skill-codebase-security-scan@main
+        # Optional: scan a subdirectory only
+        # with:
+        #   directory: src
 
       # On pull requests, post a summary comment if the scan failed
       - name: Post failure summary

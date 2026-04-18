@@ -32,25 +32,30 @@ DevOps skill for scanning a codebase before merge. Designed to run as a GitHub A
 
 ## Workflow
 
-### Step 1: Install the scanner into the target repo
+### Step 1: Add the workflow to the target repo
 
-Copy the scanner script and GitHub Action into the repo being protected:
+The scanner is a composite action hosted at
+`sfc-gh-bleboeuf/cortex-skill-codebase-security-scan` — no files need
+to be copied into the target repo. Just add the workflow:
 
 ```bash
-# From this skill directory
 SKILL_DIR="$HOME/.snowflake/cortex/skills/codebase-security-scan"
 TARGET_REPO="/path/to/your/repo"
 
-mkdir -p "$TARGET_REPO/.github/scripts" "$TARGET_REPO/.github/workflows"
-cp "$SKILL_DIR/scripts/scan.py"         "$TARGET_REPO/.github/scripts/scan.py"
-cp "$SKILL_DIR/github/security-scan.yml" "$TARGET_REPO/.github/workflows/security-scan.yml"
+mkdir -p "$TARGET_REPO/.github/workflows"
+cp "$SKILL_DIR/github/security-scan.yml" \
+   "$TARGET_REPO/.github/workflows/security-scan.yml"
 ```
 
-Commit both files:
+Commit it:
 ```bash
-git add .github/scripts/scan.py .github/workflows/security-scan.yml
+git add .github/workflows/security-scan.yml
 git commit -m "ci: add codebase security and AI model scan"
 ```
+
+The workflow uses `uses: sfc-gh-bleboeuf/cortex-skill-codebase-security-scan@main`
+— GitHub fetches the action and runs `scan.py` from the action repo automatically.
+Updates to the scanner propagate to all repos without any file changes.
 
 **⚠️ STOP**: Confirm files are committed before proceeding.
 

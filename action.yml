@@ -1,0 +1,45 @@
+name: "Codebase Security & AI Model Scan"
+description: >
+  Scans a repository for hardcoded secrets/PATs (blocks merge) and
+  outdated Snowflake Cortex AI model references in AI_COMPLETE,
+  AI_CLASSIFY, AI_EXTRACT, etc. (warns on PR).
+author: "sfc-gh-bleboeuf"
+
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  directory:
+    description: "Subdirectory of the repo to scan (default: repo root)"
+    required: false
+    default: "."
+
+outputs:
+  outcome:
+    description: "'passed' or 'failed'"
+    value: ${{ steps.scan.outputs.outcome }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Run security & AI model scan
+      id: scan
+      shell: bash
+      run: |
+        set +e
+        python "${{ github.action_path }}/scripts/scan.py" \
+          "${{ github.workspace }}/${{ inputs.directory }}" \
+          --format github
+        EXIT_CODE=$?
+        if [ $EXIT_CODE -eq 0 ]; then
+          echo "outcome=passed" >> "$GITHUB_OUTPUT"
+        else
+          echo "outcome=failed" >> "$GITHUB_OUTPUT"
+        fi
+        exit $EXIT_CODE
