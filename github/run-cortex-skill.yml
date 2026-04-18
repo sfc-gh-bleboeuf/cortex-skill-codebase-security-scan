@@ -1,0 +1,116 @@
+name: Run Cortex Code Skill
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Prompt to run via cortex -p"
+        required: true
+        default: >-
+          $codebase-security-scan Search Snowflake documentation for any
+          newly deprecated or newly supported Cortex AI models that are not
+          yet reflected in the OUTDATED_MODELS or skill tables. Update
+          scripts/scan.py and SKILL.md accordingly. Then run the skill
+          against the current repository and report findings.
+
+permissions:
+  contents: write   # needed if cortex edits skill files and we commit them
+
+jobs:
+  run-cortex-skill:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout the skill repo ──────────────────────────────────────
+      - name: Checkout skill repo
+        uses: actions/checkout@v4
+
+      # ── 2. Install Cortex Code CLI ──────────────────────────────────────
+      - name: Install Cortex Code CLI
+        env:
+          DOCKER_ENV: "1"       # triggers NON_INTERACTIVE + SKIP_PATH_PROMPT
+        run: |
+          curl -LsS https://ai.snowflake.com/static/cc-scripts/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # ── 3. Configure Snowflake connection from GitHub Secrets ────────────
+      #
+      # Required secrets:
+      #   SNOWFLAKE_ACCOUNT   — account identifier, e.g. myorg-myaccount
+      #   SNOWFLAKE_USER      — login name
+      #   SNOWFLAKE_PASSWORD  — password  (or use SNOWFLAKE_PRIVATE_KEY_PATH
+      #                         + authenticator = SNOWFLAKE_JWT for key-pair)
+      #
+      # Optional secrets (sensible defaults used if omitted):
+      #   SNOWFLAKE_ROLE      — defaults to your user's default role
+      #   SNOWFLAKE_WAREHOUSE — defaults to your user's default warehouse
+      #
+      - name: Configure Snowflake connection
+        run: |
+          mkdir -p ~/.snowflake
+          cat > ~/.snowflake/connections.toml << 'TOML'
+          default_connection_name = "ci"
+
+          [ci]
+          account   = "${SNOWFLAKE_ACCOUNT}"
+          user      = "${SNOWFLAKE_USER}"
+          password  = "${SNOWFLAKE_PASSWORD}"
+          role      = "${SNOWFLAKE_ROLE}"
+          warehouse = "${SNOWFLAKE_WAREHOUSE}"
+          TOML
+
+          # Substitute secrets — avoids writing raw values into shell history
+          sed -i \
+            -e "s|\${SNOWFLAKE_ACCOUNT}|$SNOWFLAKE_ACCOUNT|g" \
+            -e "s|\${SNOWFLAKE_USER}|$SNOWFLAKE_USER|g" \
+            -e "s|\${SNOWFLAKE_PASSWORD}|$SNOWFLAKE_PASSWORD|g" \
+            -e "s|\${SNOWFLAKE_ROLE}|${SNOWFLAKE_ROLE:-SYSADMIN}|g" \
+            -e "s|\${SNOWFLAKE_WAREHOUSE}|${SNOWFLAKE_WAREHOUSE:-COMPUTE_WH}|g" \
+            ~/.snowflake/connections.toml
+        env:
+          SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_ROLE:      ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+
+      # ── 4. Seed skill into the global skills directory ───────────────────
+      #
+      # cortex looks for skills in ~/.snowflake/cortex/skills/<name>/
+      # We symlink the checked-out repo so edits cortex makes are captured.
+      #
+      - name: Seed skill into cortex skills directory
+        run: |
+          mkdir -p ~/.snowflake/cortex/skills
+          ln -s "$GITHUB_WORKSPACE" \
+            ~/.snowflake/cortex/skills/codebase-security-scan
+
+      # ── 5. Run the prompt via cortex -p ──────────────────────────────────
+      - name: Run cortex prompt
+        id: cortex_run
+        run: |
+          cortex --connection ci -p "${{ inputs.prompt }}" \
+            --output-format stream-json 2>&1 | tee /tmp/cortex_output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      # ── 6. Write output to GitHub Actions job summary ───────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## Cortex Code Skill Output" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/cortex_output.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # ── 7. Commit any skill edits cortex made back to the repo ──────────
+      - name: Commit skill updates (if any)
+        run: |
+          git config user.name  "cortex-ci[bot]"
+          git config user.email "cortex-ci[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No skill changes to commit."
+          else
+            git commit --no-gpg-sign -m "chore: cortex skill auto-update from CI run"
+            git push
+          fi
